@@ -27,7 +27,8 @@
   },
   "line-length": {
     "strict": true,
-    "code_blocks": false
+    "code_blocks": false,
+    "line_length": 119
   },
   "link-image-style": {
     "collapsed": false,
