@@ -1,12 +1,15 @@
 [tool.poetry]
 name = "recogne"
 version = "0.1.0"
-description = ""
+description = "An RCON server for Hell Let Loose, with bells."
 authors = ["Rich Tebb <rich@tebb.io>"]
+license = "ISC"
 readme = "README.md"
 packages = [
     { include = "recogne" },
 ]
+keywords = ["hell-let-loose", "rcon"]
+homepage = "https://github.com/bwcc-clan/recogne"
 
 [tool.poetry.dependencies]
 python = "^3.12"

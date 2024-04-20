@@ -13,3 +13,7 @@ with a [Vite](https://vitejs.dev/) development environment.
 [Bastogne](https://en.wikipedia.org/wiki/Bastogne). It hosts a [German war
 cemetery](https://en.wikipedia.org/wiki/Recogne_German_war_cemetery) where 6,807 WW2 soldiers are buried. And it
 half-rhymes with RCON, kind of.
+
+## License
+
+See [main license](./LICENSE) and [ASGI Proxy license](./recogne/api/asgiproxy/LICENSE).
