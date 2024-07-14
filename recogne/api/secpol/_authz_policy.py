@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
-from typing import Any, Awaitable, ParamSpec, TypeVar, Union
+from typing import Any, Awaitable, ParamSpec, Protocol, TypeVar, Union
 
 import wrapt
 from fastapi.requests import Request
@@ -15,19 +15,33 @@ RetType = TypeVar("RetType")
 
 
 class AuthzPolicy(ABC):
+    """Abstract base class for an authorization policy."""
+
     @abstractmethod
     def check(self, request: Request) -> bool | Awaitable[bool]:
         raise NotImplementedError
 
 
+class PolicyFactory(Protocol):
+    def __call__(
+        self, request: Request, policy_class: type[AuthzPolicy], **kwargs: Any
+    ) -> AuthzPolicy: ...
+
+
+
 class Authenticated(AuthzPolicy):
+    """An authorization policy that requires an authenticated user."""
+
     def check(self, request: Request) -> bool | Awaitable[bool]:
         return request.user.is_authenticated
 
 
 class Requires(AuthzPolicy):
-    def __init__(self, *, scopes: Union[str, Sequence[str]]) -> None:
+    """An authorization policy that requires one or more scopes."""
+
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__()
+        scopes: Union[str, Sequence[str]] = kwargs.get("scopes", [])
         self.scopes = [scopes] if isinstance(scopes, str) else list(scopes)
 
     def check(self, request: Request) -> bool | Awaitable[bool]:
@@ -36,13 +50,13 @@ class Requires(AuthzPolicy):
                 return False
         return True
 
-
 # pyright: basic
 # Based on example at https://github.com/GrahamDumpleton/wrapt/issues/150#issuecomment-893232442
 def authz_policy(policy: type[AuthzPolicy], **params: Any):
     """
     A decorator that applies an authorization policy to the endpoint.
     """
+
     def wrapper(wrapped: Callable[Param, RetType]) -> Callable[Param, RetType]:
         @wrapt.decorator
         async def _async_authz(wrapped, instance, args, kwargs):

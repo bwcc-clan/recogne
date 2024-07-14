@@ -1,23 +1,18 @@
 import asyncio
 from collections.abc import Callable, Coroutine
-from typing import Any, Protocol
+from typing import Any
 
 from fastapi.requests import Request
 from fastapi.responses import Response
 from fastapi.routing import APIRoute
 
-from . import PolicyAuthorizationError
 from ._authz_policy import (
     POLICY_CLASS_ATTRIBUTE_NAME,
     POLICY_PARAMS_ATTRIBUTE_NAME,
     AuthzPolicy,
+    PolicyFactory,
 )
-
-
-class PolicyFactory(Protocol):
-    def __call__(
-        self, request: Request, policy_class: type[AuthzPolicy], **kwargs: Any
-    ) -> AuthzPolicy: ...
+from ._exceptions import PolicyAuthorizationError
 
 
 def default_policy_factory(
@@ -43,7 +38,9 @@ class SecureRoute(APIRoute):
         if not policy_type:
             return
         policy_params = getattr(self.dependant.call, POLICY_PARAMS_ATTRIBUTE_NAME, {})
-        policy = SecureRoute.policy_factory(request, policy_type, **policy_params)
+        all_params = {"_policy_factory": SecureRoute.policy_factory}
+        all_params.update(policy_params)
+        policy = SecureRoute.policy_factory(request, policy_type, **all_params)
         if asyncio.iscoroutinefunction(policy.check):
             allowed = await policy.check(request)
         else:

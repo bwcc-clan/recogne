@@ -4,7 +4,13 @@ import uvicorn
 from fastapi import FastAPI
 
 from .auth import BasicAuthBackend, MyTestPolicy
-from .secpol import Authenticated, add_endpoint_security, authz_policy
+from .secpol import (
+    Authenticated,
+    Composite,
+    Requires,
+    add_endpoint_security,
+    authz_policy,
+)
 from .ui_proxy import make_proxy_app
 
 app = FastAPI()
@@ -25,6 +31,20 @@ async def root_test(arg: str):
 @app.get("/test-auth")
 @authz_policy(Authenticated)
 async def test_auth(arg: str):
+    return {"message": f"Hello, {arg}"}
+
+
+@app.get("/test-composite")
+@authz_policy(
+    Composite, policies=[(Authenticated, {}), (Requires, {"scopes": ["scope1"]})]
+)
+async def test_composite(arg: str):
+    return {"message": f"Hello, {arg}"}
+
+
+@app.get("/test-requires")
+@authz_policy(Requires, scopes=["scope1"])
+async def test_requires(arg: str):
     return {"message": f"Hello, {arg}"}
 
 

@@ -1,12 +1,23 @@
+"""
+This package adds policy-based security to a Starlette ASGI application.
+"""
+
 from typing import Optional
 
 from fastapi.applications import FastAPI
 from starlette.authentication import AuthenticationBackend
 from starlette.middleware.authentication import AuthenticationMiddleware
 
-from ._authz_policy import Authenticated, AuthzPolicy, Requires, authz_policy
+from ._authz_policy import (
+    Authenticated,
+    AuthzPolicy,
+    PolicyFactory,
+    Requires,
+    authz_policy,
+)
 from ._exceptions import PolicyAuthorizationError
-from ._secure_route import PolicyFactory, SecureRoute
+from ._policies import Composite
+from ._secure_route import SecureRoute
 
 
 def add_endpoint_security(
@@ -22,10 +33,12 @@ def add_endpoint_security(
 
 
 __all__ = [
-    "authz_policy",
     "SecureRoute",
+    "authz_policy",
     "PolicyAuthorizationError",
+    "PolicyFactory",
     "AuthzPolicy",
     "Authenticated",
+    "Composite",
     "Requires",
 ]
