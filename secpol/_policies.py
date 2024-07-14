@@ -42,11 +42,18 @@ class AuthzPolicy(ABC):
         return type(self).__name__
 
 
-class NullPolicy(AuthzPolicy):
-    """A no-op policy that always allows the request to proceed."""
+class Allow(AuthzPolicy):
+    """An authorization policy that is satisfied by any request."""
 
     def check(self, request: Request) -> PolicyCheckResult:
         return PolicyCheckResult(True, None)
+
+
+class Disallow(AuthzPolicy):
+    """An authorization policy that is never satisfied by any request."""
+
+    def check(self, request: Request) -> PolicyCheckResult:
+        return PolicyCheckResult(True, "Policy disallows authorization")
 
 
 class Authenticated(AuthzPolicy):
@@ -59,7 +66,7 @@ class Authenticated(AuthzPolicy):
 
 
 class Requires(AuthzPolicy):
-    """An authorization policy that requires one or more scopes."""
+    """An authorization policy that requires all of the specified scopes to be present."""
 
     def __init__(self, scopes: Union[str, Sequence[str]]) -> None:
         super().__init__()

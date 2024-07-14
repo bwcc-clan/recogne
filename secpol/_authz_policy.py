@@ -1,4 +1,4 @@
-from collections.abc import Callable, Coroutine, Sequence
+from collections.abc import Callable, Coroutine
 from typing import Any, ParamSpec, TypeVar
 
 import wrapt
@@ -9,9 +9,8 @@ from starlette._utils import is_async_callable
 from starlette.authentication import AuthenticationError
 
 from ._policies import (
-    AllOf,
+    Allow,
     AuthzPolicy,
-    NullPolicy,
     do_policy_check,
 )
 
@@ -36,16 +35,65 @@ class PolicyAuthorizationError(AuthenticationError):
         self.policy = policy
 
 
+class SecureRoute(APIRoute):
+    """A custom `APIRoute` that applies endpoint security."""
+
+    default_policy: AuthzPolicy = Allow()
+    """The default policy to apply if the endpoint has no explicity policy configured."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        """
+        Gets the handler function for the current route.
+
+        Returns:
+            Callable[[Request], Coroutine[Any, Any, Response]]: The route handler function.
+        """
+
+        original_route_handler = super().get_route_handler()
+
+        async def custom_route_handler(request: Request) -> Response:
+            """
+            The route handler that implements policy checking.
+
+            Args:
+                request (Request): The request to authorize.
+
+            Raises:
+                PolicyAuthorizationError: The authorization policy was not satisfied.
+
+            Returns:
+                Response: The response from the underlying endpoint's handler function, if the authorization policy was
+                satisfied.
+            """
+
+            await self._invoke_policy_check(request)
+            return await original_route_handler(request)
+
+        return custom_route_handler
+
+    async def _invoke_policy_check(self, request: Request):
+        policy = getattr(self.dependant.call, POLICY_ATTRIBUTE_NAME, Allow())
+        result = await do_policy_check(request, policy)
+        if not result.allowed:
+            reason = (
+                result.failure_reason
+                if result.failure_reason
+                else "Not authorized by policy"
+            )
+            raise PolicyAuthorizationError(reason, policy)
+
+
 # pyright: basic
 # This decorator can be used to decorate either sync or async functions.
 # Based on example at https://github.com/GrahamDumpleton/wrapt/issues/150#issuecomment-893232442
-def authz_policy(policy: AuthzPolicy | Sequence[AuthzPolicy]):
+def authz_policy(policy: AuthzPolicy):
     """
-    A decorator that applies an authorization policy to the endpoint.
-    """
+    Applies the specified authorization policy to the endpoint.
 
-    if isinstance(policy, Sequence):
-        policy = AllOf(*policy)
+
+    Args:
+        policy (AuthzPolicy): The policy to apply to the endpoint.
+    """
 
     def wrapper(wrapped: Callable[Param, RetType]) -> Callable[Param, RetType]:
         @wrapt.decorator
@@ -56,6 +104,7 @@ def authz_policy(policy: AuthzPolicy | Sequence[AuthzPolicy]):
         def _sync_authz(wrapped, instance, args, kwargs):
             return wrapped(*args, **kwargs)
 
+        # Set the policy as an attribute on the endpoint that can be picked up by the SecureRoute route handler
         setattr(wrapped, POLICY_ATTRIBUTE_NAME, policy)
 
         if is_async_callable(wrapped):
@@ -64,25 +113,3 @@ def authz_policy(policy: AuthzPolicy | Sequence[AuthzPolicy]):
             return _sync_authz(wrapped)  # type: ignore
 
     return wrapper
-
-
-class SecureRoute(APIRoute):
-    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
-        original_route_handler = super().get_route_handler()
-
-        async def custom_route_handler(request: Request) -> Response:
-            await self._invoke_policy_check(request)
-            return await original_route_handler(request)
-
-        return custom_route_handler
-
-    async def _invoke_policy_check(self, request: Request):
-        policy = getattr(self.dependant.call, POLICY_ATTRIBUTE_NAME, NullPolicy())
-        result = await do_policy_check(request, policy)
-        if not result.allowed:
-            reason = (
-                result.failure_reason
-                if result.failure_reason
-                else "Not authorized by policy"
-            )
-            raise PolicyAuthorizationError(reason, policy)
