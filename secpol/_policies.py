@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Awaitable, NamedTuple, Optional, Union
+from typing import Awaitable, NamedTuple, Optional, Union, cast
 
 from fastapi.requests import Request
 from starlette._utils import is_async_callable
@@ -87,11 +87,8 @@ class AllOf(AuthzPolicy):
 
     async def check(self, request: Request) -> PolicyCheckResult:
         for policy in self.policies:
-            if is_async_callable(policy.check):
-                allowed = await policy.check(request)
-            else:
-                allowed = policy.check(request)
-            if not allowed:
+            result = await do_policy_check(request, policy)
+            if not result.allowed:
                 return PolicyCheckResult(
                     False,
                     f"Policy authorization rejected by sub-policy {policy.description}",
@@ -101,8 +98,8 @@ class AllOf(AuthzPolicy):
 
 class OneOf(AuthzPolicy):
     """
-    A policy that aggregates one or more sub-policies. At least one of the sub-policies must pass for the composite
-    policy to pass.
+    A policy that aggregates one or more sub-policies. At least one sub-policy must pass for the composite policy to
+    pass.
 
     Args:
         AuthzPolicy (_type_): One or more sub-policies to compose into a single policy.
@@ -113,14 +110,16 @@ class OneOf(AuthzPolicy):
         self.policies = [*args]
 
     async def check(self, request: Request) -> PolicyCheckResult:
-        allowed = False
         for policy in self.policies:
-            if is_async_callable(policy.check):
-                allowed = await policy.check(request)
-            else:
-                allowed = policy.check(request)
-            if allowed:
-                break
-        if not allowed:
-            return PolicyCheckResult(False, "Not authorized by any of the sub-policies")
-        return PolicyCheckResult(True, None)
+            result = await do_policy_check(request, policy)
+            if result.allowed:
+                return PolicyCheckResult(True, None)
+        return PolicyCheckResult(False, "Not authorized by any sub-policy")
+
+
+async def do_policy_check(request: Request, policy: AuthzPolicy) -> PolicyCheckResult:
+    if is_async_callable(policy.check):
+        result = await cast(Awaitable[PolicyCheckResult], policy.check(request))
+    else:
+        result = cast(PolicyCheckResult, policy.check(request))
+    return result

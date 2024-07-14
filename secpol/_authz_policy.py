@@ -1,6 +1,5 @@
-import asyncio
-from collections.abc import Awaitable, Callable, Coroutine, Sequence
-from typing import Any, ParamSpec, TypeVar, cast
+from collections.abc import Callable, Coroutine, Sequence
+from typing import Any, ParamSpec, TypeVar
 
 import wrapt
 from fastapi.requests import Request
@@ -9,7 +8,12 @@ from fastapi.routing import APIRoute
 from starlette._utils import is_async_callable
 from starlette.authentication import AuthenticationError
 
-from ._policies import AllOf, AuthzPolicy, NullPolicy, PolicyCheckResult
+from ._policies import (
+    AllOf,
+    AuthzPolicy,
+    NullPolicy,
+    do_policy_check,
+)
 
 POLICY_ATTRIBUTE_NAME = "_authz_policy_"
 
@@ -74,10 +78,7 @@ class SecureRoute(APIRoute):
 
     async def _invoke_policy_check(self, request: Request):
         policy = getattr(self.dependant.call, POLICY_ATTRIBUTE_NAME, NullPolicy())
-        if asyncio.iscoroutinefunction(policy.check):
-            result = await cast(Awaitable[PolicyCheckResult], policy.check(request))
-        else:
-            result = cast(PolicyCheckResult, policy.check(request))
+        result = await do_policy_check(request, policy)
         if not result.allowed:
             reason = (
                 result.failure_reason
