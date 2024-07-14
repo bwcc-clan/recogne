@@ -16,6 +16,7 @@
       "type": "debugpy",
       "request": "launch",
       "module": "recogne.api.main",
+      "justMyCode": false,
     }
   ]
 }
