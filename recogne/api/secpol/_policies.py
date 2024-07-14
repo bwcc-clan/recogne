@@ -1,33 +1,126 @@
+from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, Tuple
+from typing import Awaitable, NamedTuple, Optional, Union
 
 from fastapi.requests import Request
 from starlette._utils import is_async_callable
 
-from ._authz_policy import AuthzPolicy, PolicyFactory
-from ._exceptions import PolicyAuthorizationError
+PolicyCheckResult = NamedTuple(
+    "PolicyCheckResult", [("allowed", bool), ("failure_reason", Optional[str])]
+)
 
-type PolicySpec = Tuple[type[AuthzPolicy], dict[str, Any]]
+
+class AuthzPolicy(ABC):
+    """Abstract base class for an authorization policy."""
+
+    @abstractmethod
+    def check(
+        self, request: Request
+    ) -> PolicyCheckResult | Awaitable[PolicyCheckResult]:
+        """
+        Performs the policy check. This can be a synchronous or asynchronous function.
+
+        Args:
+            request (Request): The current request, which the policy must authorize.
+
+        Raises:
+            NotImplementedError: _description_
+
+        Returns:
+            bool | Awaitable[bool]: _description_
+        """
+        raise NotImplementedError
+
+    @property
+    def description(self) -> str:
+        """
+        Gets a human-friendly description of the policy.
+
+        Returns:
+            str: The policy description.
+        """
+        return type(self).__name__
 
 
-class Composite(AuthzPolicy):
-    def __init__(self, **kwargs: Any) -> None:
+class NullPolicy(AuthzPolicy):
+    """A no-op policy that always allows the request to proceed."""
+
+    def check(self, request: Request) -> PolicyCheckResult:
+        return PolicyCheckResult(True, None)
+
+
+class Authenticated(AuthzPolicy):
+    """An authorization policy that requires an authenticated user."""
+
+    def check(self, request: Request) -> PolicyCheckResult:
+        return PolicyCheckResult(
+            request.user.is_authenticated, "User not authenticated"
+        )
+
+
+class Requires(AuthzPolicy):
+    """An authorization policy that requires one or more scopes."""
+
+    def __init__(self, scopes: Union[str, Sequence[str]]) -> None:
         super().__init__()
-        policies: Sequence[PolicySpec] = kwargs.get("policies", [])
-        policy_factory: PolicyFactory | None = kwargs.get("_policy_factory")
-        if not policy_factory:
-            raise RuntimeError("_policy_factory not in kwargs")
-        self.policy_factory = policy_factory
-        self.policies = policies
+        self.scopes = [scopes] if isinstance(scopes, str) else list(scopes)
 
-    async def check(self, request: Request) -> bool:
-        for policy_spec in self.policies:
-            policy = self.policy_factory(request=request, policy_class=policy_spec[0], **policy_spec[1])
+    def check(self, request: Request) -> PolicyCheckResult:
+        for scope in self.scopes:
+            if scope not in request.auth.scopes:
+                return PolicyCheckResult(False, f"Scope {scope} not present")
+        return PolicyCheckResult(True, None)
+
+
+class AllOf(AuthzPolicy):
+    """
+    A policy that aggregates one or more sub-policies. All of the sub-policies must pass for the composite policy to
+    pass.
+
+    Args:
+        AuthzPolicy (_type_): One or more sub-policies to compose into a single policy.
+    """
+
+    def __init__(self, *args: AuthzPolicy) -> None:
+        super().__init__()
+        self.policies = [*args]
+
+    async def check(self, request: Request) -> PolicyCheckResult:
+        for policy in self.policies:
             if is_async_callable(policy.check):
                 allowed = await policy.check(request)
             else:
                 allowed = policy.check(request)
             if not allowed:
-                raise PolicyAuthorizationError("Not authorized by sub-policy", policy)
-        return True
+                return PolicyCheckResult(
+                    False,
+                    f"Policy authorization rejected by sub-policy {policy.description}",
+                )
+        return PolicyCheckResult(True, None)
 
+
+class OneOf(AuthzPolicy):
+    """
+    A policy that aggregates one or more sub-policies. At least one of the sub-policies must pass for the composite
+    policy to pass.
+
+    Args:
+        AuthzPolicy (_type_): One or more sub-policies to compose into a single policy.
+    """
+
+    def __init__(self, *args: AuthzPolicy) -> None:
+        super().__init__()
+        self.policies = [*args]
+
+    async def check(self, request: Request) -> PolicyCheckResult:
+        allowed = False
+        for policy in self.policies:
+            if is_async_callable(policy.check):
+                allowed = await policy.check(request)
+            else:
+                allowed = policy.check(request)
+            if allowed:
+                break
+        if not allowed:
+            return PolicyCheckResult(False, "Not authorized by any of the sub-policies")
+        return PolicyCheckResult(True, None)

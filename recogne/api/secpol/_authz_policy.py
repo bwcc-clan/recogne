@@ -1,61 +1,41 @@
-from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
-from typing import Any, Awaitable, ParamSpec, Protocol, TypeVar, Union
+import asyncio
+from collections.abc import Awaitable, Callable, Coroutine, Sequence
+from typing import Any, ParamSpec, TypeVar, cast
 
 import wrapt
 from fastapi.requests import Request
+from fastapi.responses import Response
+from fastapi.routing import APIRoute
 from starlette._utils import is_async_callable
+from starlette.authentication import AuthenticationError
 
-POLICY_CLASS_ATTRIBUTE_NAME = "_authz_policy_class_"
-POLICY_PARAMS_ATTRIBUTE_NAME = "_authz_policy_params_"
+from ._policies import AllOf, AuthzPolicy, NullPolicy, PolicyCheckResult
+
+POLICY_ATTRIBUTE_NAME = "_authz_policy_"
 
 
 Param = ParamSpec("Param")
 RetType = TypeVar("RetType")
 
 
-class AuthzPolicy(ABC):
-    """Abstract base class for an authorization policy."""
-
-    @abstractmethod
-    def check(self, request: Request) -> bool | Awaitable[bool]:
-        raise NotImplementedError
 
 
-class PolicyFactory(Protocol):
-    def __call__(
-        self, request: Request, policy_class: type[AuthzPolicy], **kwargs: Any
-    ) -> AuthzPolicy: ...
+class PolicyAuthorizationError(AuthenticationError):
+    def __init__(self, msg: str, policy: AuthzPolicy) -> None:
+        super().__init__(msg)
+        self.policy = policy
 
-
-
-class Authenticated(AuthzPolicy):
-    """An authorization policy that requires an authenticated user."""
-
-    def check(self, request: Request) -> bool | Awaitable[bool]:
-        return request.user.is_authenticated
-
-
-class Requires(AuthzPolicy):
-    """An authorization policy that requires one or more scopes."""
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__()
-        scopes: Union[str, Sequence[str]] = kwargs.get("scopes", [])
-        self.scopes = [scopes] if isinstance(scopes, str) else list(scopes)
-
-    def check(self, request: Request) -> bool | Awaitable[bool]:
-        for scope in self.scopes:
-            if scope not in request.auth.scopes:
-                return False
-        return True
 
 # pyright: basic
+# This decorator can be used to decorate either sync or async functions.
 # Based on example at https://github.com/GrahamDumpleton/wrapt/issues/150#issuecomment-893232442
-def authz_policy(policy: type[AuthzPolicy], **params: Any):
+def authz_policy(policy: AuthzPolicy | Sequence[AuthzPolicy]):
     """
     A decorator that applies an authorization policy to the endpoint.
     """
+
+    if isinstance(policy, Sequence):
+        policy = AllOf(*policy)
 
     def wrapper(wrapped: Callable[Param, RetType]) -> Callable[Param, RetType]:
         @wrapt.decorator
@@ -66,8 +46,7 @@ def authz_policy(policy: type[AuthzPolicy], **params: Any):
         def _sync_authz(wrapped, instance, args, kwargs):
             return wrapped(*args, **kwargs)
 
-        setattr(wrapped, POLICY_CLASS_ATTRIBUTE_NAME, policy)
-        setattr(wrapped, POLICY_PARAMS_ATTRIBUTE_NAME, params)
+        setattr(wrapped, POLICY_ATTRIBUTE_NAME, policy)
 
         if is_async_callable(wrapped):
             return _async_authz(wrapped)  # type: ignore
@@ -75,3 +54,25 @@ def authz_policy(policy: type[AuthzPolicy], **params: Any):
             return _sync_authz(wrapped)  # type: ignore
 
     return wrapper
+
+
+class SecureRoute(APIRoute):
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        original_route_handler = super().get_route_handler()
+
+        async def custom_route_handler(request: Request) -> Response:
+            await self._invoke_policy_check(request)
+            return await original_route_handler(request)
+
+        return custom_route_handler
+
+    async def _invoke_policy_check(self, request: Request):
+        policy = getattr(self.dependant.call, POLICY_ATTRIBUTE_NAME, NullPolicy())
+        if asyncio.iscoroutinefunction(policy.check):
+            result = await cast(Awaitable[PolicyCheckResult], policy.check(request))
+        else:
+            result = cast(PolicyCheckResult, policy.check(request))
+        if not result.allowed:
+            reason = result.failure_reason if result.failure_reason else "Not authorized by policy"
+            raise PolicyAuthorizationError(reason, policy)

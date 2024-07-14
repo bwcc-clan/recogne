@@ -5,8 +5,8 @@ from fastapi import FastAPI
 
 from .auth import BasicAuthBackend, MyTestPolicy
 from .secpol import (
+    AllOf,
     Authenticated,
-    Composite,
     Requires,
     add_endpoint_security,
     authz_policy,
@@ -23,27 +23,25 @@ async def root():
 
 
 @app.get("/test")
-@authz_policy(MyTestPolicy, excellent=True)
+@authz_policy(MyTestPolicy(excellent=True))
 async def root_test(arg: str):
     return {"message": f"Hello, {arg}"}
 
 
 @app.get("/test-auth")
-@authz_policy(Authenticated)
+@authz_policy(Authenticated())
 async def test_auth(arg: str):
     return {"message": f"Hello, {arg}"}
 
 
 @app.get("/test-composite")
-@authz_policy(
-    Composite, policies=[(Authenticated, {}), (Requires, {"scopes": ["scope1"]})]
-)
+@authz_policy(AllOf(Authenticated(), Requires(scopes="scope1")))
 async def test_composite(arg: str):
     return {"message": f"Hello, {arg}"}
 
 
 @app.get("/test-requires")
-@authz_policy(Requires, scopes=["scope1"])
+@authz_policy(Requires(scopes=["scope1"]))
 async def test_requires(arg: str):
     return {"message": f"Hello, {arg}"}
 
