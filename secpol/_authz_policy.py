@@ -18,10 +18,16 @@ Param = ParamSpec("Param")
 RetType = TypeVar("RetType")
 
 
-
-
 class PolicyAuthorizationError(AuthenticationError):
+    """Raised when a request fails to pass its effective authorization policy."""
+
     def __init__(self, msg: str, policy: AuthzPolicy) -> None:
+        """Creates a new exception.
+
+        Args:
+            msg (str): The exception message that describes the reason for policy failure.
+            policy (AuthzPolicy): The effective policy instance for the request.
+        """
         super().__init__(msg)
         self.policy = policy
 
@@ -57,7 +63,6 @@ def authz_policy(policy: AuthzPolicy | Sequence[AuthzPolicy]):
 
 
 class SecureRoute(APIRoute):
-
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         original_route_handler = super().get_route_handler()
 
@@ -74,5 +79,9 @@ class SecureRoute(APIRoute):
         else:
             result = cast(PolicyCheckResult, policy.check(request))
         if not result.allowed:
-            reason = result.failure_reason if result.failure_reason else "Not authorized by policy"
+            reason = (
+                result.failure_reason
+                if result.failure_reason
+                else "Not authorized by policy"
+            )
             raise PolicyAuthorizationError(reason, policy)

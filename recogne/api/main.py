@@ -3,14 +3,15 @@ import asyncio
 import uvicorn
 from fastapi import FastAPI
 
-from .auth import BasicAuthBackend, MyTestPolicy
-from .secpol import (
+from secpol import (
     AllOf,
     Authenticated,
     Requires,
     add_endpoint_security,
     authz_policy,
 )
+
+from .auth import BasicAuthBackend, MyTestPolicy
 from .ui_proxy import make_proxy_app
 
 app = FastAPI()

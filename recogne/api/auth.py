@@ -9,7 +9,7 @@ from starlette.authentication import (
 )
 from starlette.requests import HTTPConnection
 
-from .secpol import AuthzPolicy
+from secpol import AuthzPolicy, PolicyCheckResult
 
 
 class MyTestPolicy(AuthzPolicy):
@@ -17,8 +17,8 @@ class MyTestPolicy(AuthzPolicy):
         super().__init__()
         self.args = kwargs
 
-    def check(self, request: Request) -> bool:
-        return True
+    def check(self, request: Request) -> PolicyCheckResult:
+        return PolicyCheckResult(True, None)
 
 
 

@@ -7,7 +7,7 @@ from starlette.authentication import AuthenticationBackend
 from starlette.middleware.authentication import AuthenticationMiddleware
 
 from ._authz_policy import PolicyAuthorizationError, SecureRoute, authz_policy
-from ._policies import AllOf, Authenticated, AuthzPolicy, Requires
+from ._policies import AllOf, Authenticated, AuthzPolicy, PolicyCheckResult, Requires
 
 
 def add_endpoint_security(
@@ -24,6 +24,7 @@ __all__ = [
     "authz_policy",
     "PolicyAuthorizationError",
     "AuthzPolicy",
+    "PolicyCheckResult",
     "Authenticated",
     "AllOf",
     "Requires",
